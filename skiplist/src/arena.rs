@@ -41,7 +41,7 @@ impl Arena {
         self.core.len.load(Ordering::SeqCst)
     }
 
-    pub fn alloc(&self, align: usize, size: usize) -> u32 {
+    pub fn alloc<N>(&self, align: usize, size: usize) -> *mut N {
         let align_mask = align - 1;
         // Leave enough padding for align.
         let size = size + align_mask;
@@ -50,23 +50,13 @@ impl Arena {
         // (offset + align_mask) / align * align.
         let ptr_offset = (offset as usize + align_mask) & !align_mask;
         assert!(offset as usize + size <= self.core.cap);
-        ptr_offset as u32
+        unsafe { self.get_mut(ptr_offset as u32) as _ }
     }
 
-    pub unsafe fn get_mut<N>(&self, offset: u32) -> *mut N {
+    unsafe fn get_mut<N>(&self, offset: u32) -> *mut N {
         if offset == 0 {
             return ptr::null_mut();
         }
         self.core.ptr.add(offset as usize) as _
-    }
-
-    pub fn offset<N>(&self, ptr: *const N) -> u32 {
-        let ptr_addr = ptr as usize;
-        let self_addr = self.core.ptr as usize;
-        if ptr_addr > self_addr && ptr_addr < self_addr + self.core.cap {
-            (ptr_addr - self_addr) as u32
-        } else {
-            0
-        }
     }
 }

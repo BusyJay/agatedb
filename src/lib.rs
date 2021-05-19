@@ -15,6 +15,7 @@ mod opt;
 mod table;
 mod util;
 mod value;
+mod value_log;
 mod wal;
 
 pub use format::{get_ts, key_with_ts};

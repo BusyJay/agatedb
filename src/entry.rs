@@ -1,8 +1,7 @@
+use crate::value::{ValuePointer, VALUE_DELETE};
 use bytes::Bytes;
 
-const DELETE: u8 = 1 << 0;
-const VALUE_POINTER: u8 = 1 << 1;
-
+#[derive(Clone)]
 pub struct Entry {
     pub key: Bytes,
     pub value: Bytes,
@@ -40,7 +39,20 @@ impl Entry {
     }
 
     pub fn mark_delete(&mut self) {
-        self.meta |= DELETE;
+        self.meta |= VALUE_DELETE;
+    }
+
+    pub fn estimate_size(&self, threshold: usize) -> usize {
+        // The estimated size of an entry will be key length + value length +
+        // two bytes of metadata + expires_at.
+        const METADATA_SIZE: usize = std::mem::size_of::<u8>() * 2 + std::mem::size_of::<u64>();
+        if self.value.len() < threshold {
+            // For those values < threshold, key and value will be directly stored in LSM tree.
+            self.key.len() + self.value.len() + METADATA_SIZE
+        } else {
+            // For those values >= threshold, only key will be stored in LSM tree.
+            self.key.len() + ValuePointer::encoded_size() + METADATA_SIZE
+        }
     }
 
     // TODO: entry encoding will be done later, as current WAL encodes header and key / value separately

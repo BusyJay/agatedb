@@ -2,7 +2,8 @@ use crate::entry::Entry;
 use crate::entry::EntryRef;
 use crate::wal::Header;
 use crate::{Error, Result};
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use crossbeam_channel::Sender;
 use std::io::{Cursor, Read};
 use std::mem::MaybeUninit;
 
@@ -13,7 +14,6 @@ pub const VALUE_MERGE_ENTRY: u8 = 1 << 3;
 pub const VALUE_TXN: u8 = 1 << 6;
 pub const VALUE_FIN_TXN: u8 = 1 << 7;
 
-/// Value of a kv pair is packed into `Value` struct with extra information.
 #[derive(Default, Debug, Clone)]
 pub struct Value {
     pub meta: u8,
@@ -23,11 +23,11 @@ pub struct Value {
     pub version: u64,
 }
 
-impl Into<Bytes> for Value {
-    fn into(self) -> Bytes {
+impl From<Value> for Bytes {
+    fn from(value: Value) -> Bytes {
         // TODO: we can reduce unnecessary copy by re-writing `encode`
         let mut buf = BytesMut::new();
-        self.encode(&mut buf);
+        value.encode(&mut buf);
         buf.freeze()
     }
 }
@@ -102,9 +102,9 @@ impl Value {
 
     pub fn new_with_meta(value: Bytes, meta: u8, user_meta: u8) -> Self {
         Self {
-            value,
             meta,
             user_meta,
+            value,
             ..Self::default()
         }
     }
@@ -136,33 +136,54 @@ impl Value {
 }
 
 /// A request contains multiple entries to be written into LSM tree.
+#[derive(Clone)]
 pub struct Request {
+    /// Entries contained in this request
     pub entries: Vec<Entry>,
+    /// Offset in vLog (will be updated upon processing the request)
+    pub ptrs: Vec<ValuePointer>,
+    /// Use channel to notify that the value has been persisted to disk
+    pub done: Option<Sender<Result<()>>>,
 }
 
 /// `ValuePointer` records the position of value saved in value log.
+#[derive(Clone, Default, Debug)]
 pub struct ValuePointer {
     pub file_id: u32,
     pub len: u32,
     pub offset: u32,
 }
 
-/// `EntryReader` reads entries from `BufReader`.
+impl ValuePointer {
+    pub fn decode(&mut self, mut bytes: &[u8]) {
+        self.file_id = bytes.get_u32_le();
+        self.len = bytes.get_u32_le();
+        self.offset = bytes.get_u32_le();
+    }
+
+    pub fn encode(&self, buf: &mut BytesMut) {
+        buf.put_u32_le(self.file_id);
+        buf.put_u32_le(self.len);
+        buf.put_u32_le(self.offset);
+    }
+
+    pub fn encoded_size() -> usize {
+        return std::mem::size_of::<u32>() * 3;
+    }
+}
+
+/// `EntryReader` reads entries from the `Cursor` with the `entry` function.
 pub struct EntryReader {
     key: Vec<u8>,
     value: Vec<u8>,
-    buf: Vec<u8>,
     header: Header,
-    record_offset: u32,
 }
 
 impl EntryReader {
     pub fn new() -> Self {
         Self {
-            record_offset: 0,
             key: vec![],
             value: vec![],
-            buf: vec![0; crate::wal::MAX_HEADER_SIZE],
             header: Header::default(),
         }
     }
@@ -175,7 +196,6 @@ impl EntryReader {
                 "key length must not be larger than 1 << 16".to_string(),
             ));
         }
-        // TODO: resize key and value without initialization
         self.key.resize(self.header.key_len as usize, 0);
         reader.read_exact(&mut self.key)?;
         self.value.resize(self.header.value_len as usize, 0);
@@ -186,6 +206,7 @@ impl EntryReader {
             meta: self.header.meta,
             user_meta: self.header.user_meta,
             expires_at: self.header.expires_at,
+            // This `version` is currently not used anywhere, and we may remove it later.
             version: 0,
         })
     }

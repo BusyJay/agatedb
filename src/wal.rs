@@ -186,11 +186,11 @@ impl Wal {
 
         // TODO: add CRC32 check
 
-        return buf.len();
+        buf.len()
     }
 
     /// Decode entry from buffer
-    fn decode_entry(buf: &mut Bytes) -> Result<Entry> {
+    pub(crate) fn decode_entry(buf: &mut Bytes) -> Result<Entry> {
         let mut header = Header::default();
         header.decode(buf)?;
         let kv = buf;

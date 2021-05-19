@@ -67,7 +67,7 @@ impl AgateOptions {
         Ok(())
     }
 
-    fn skip_vlog(&self, entry: &Entry) -> bool {
+    pub fn skip_vlog(&self, entry: &Entry) -> bool {
         entry.value.len() < self.value_threshold
     }
 

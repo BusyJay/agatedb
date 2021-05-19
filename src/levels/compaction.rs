@@ -198,7 +198,6 @@ impl CompactStatus {
 
         this_level.del_size -= compact_def.this_size;
         let mut found = this_level.remove(&compact_def.this_range);
-        drop(this_level);
 
         if !compact_def.next_range.is_empty() {
             let next_level = &mut self.levels[next_level_id];
@@ -303,12 +302,12 @@ pub fn get_key_range(tables: &[Table]) -> Option<KeyRange> {
     let mut smallest = tables[0].smallest();
     let mut biggest = tables[0].biggest();
 
-    for i in 1..tables.len() {
-        if COMPARATOR.compare_key(tables[i].smallest(), &smallest) == std::cmp::Ordering::Less {
-            smallest = tables[i].smallest();
+    for item in tables.iter().skip(1) {
+        if COMPARATOR.compare_key(item.smallest(), &smallest) == std::cmp::Ordering::Less {
+            smallest = item.smallest();
         }
-        if COMPARATOR.compare_key(tables[i].biggest(), &biggest) == std::cmp::Ordering::Greater {
-            biggest = tables[i].biggest();
+        if COMPARATOR.compare_key(item.biggest(), &biggest) == std::cmp::Ordering::Greater {
+            biggest = item.biggest();
         }
     }
     let mut smallest_buf = BytesMut::with_capacity(smallest.len() + 8);
